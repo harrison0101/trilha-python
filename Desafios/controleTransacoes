@@ -1,0 +1,369 @@
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.util.*;
+
+public class BancoApp {
+
+
+
+    static final class Cliente {
+        String id, nome, cpf;
+        Cliente(String id, String nome, String cpf) { this.id=id; this.nome=nome; this.cpf=cpf; }
+    }
+
+    enum TipoConta { CORRENTE, POUPANCA }
+    enum TipoTransacao { CREDITO, DEBITO }
+    enum TipoInvestimento { RENDA_FIXA_SIMPLES, CDB_POS }
+
+    static final class Transacao {
+        String id = UUID.randomUUID().toString();
+        LocalDateTime quando = LocalDateTime.now();
+        TipoTransacao tipo;
+        BigDecimal valor;
+        String descricao;
+        Transacao(TipoTransacao tipo, BigDecimal valor, String descricao){
+            this.tipo=tipo; this.valor=valor; this.descricao=descricao;
+        }
+        static Transacao credito(BigDecimal v, String d){ return new Transacao(TipoTransacao.CREDITO, v, d); }
+        static Transacao debito(BigDecimal v, String d){ return new Transacao(TipoTransacao.DEBITO, v, d); }
+    }
+
+    static abstract class Conta {
+        String id, numero;
+        Cliente titular;
+        BigDecimal saldo = BigDecimal.ZERO;
+        TipoConta tipo;
+        List<Transacao> historico = new ArrayList<>();
+
+        Conta(String id, String numero, Cliente titular, TipoConta tipo){
+            this.id=id; this.numero=numero; this.titular=titular; this.tipo=tipo;
+        }
+        void depositar(BigDecimal v){
+            validarPositivo(v);
+            saldo = saldo.add(v);
+            historico.add(Transacao.credito(v, "Depósito"));
+        }
+        void sacar(BigDecimal v){
+            validarPositivo(v);
+            if(!podeDebitar(v)) throw new IllegalStateException("Saldo insuficiente");
+            saldo = saldo.subtract(v);
+            historico.add(Transacao.debito(v, "Saque"));
+        }
+        void transferirPara(Conta destino, BigDecimal v, String desc){
+            validarPositivo(v);
+            if(!podeDebitar(v)) throw new IllegalStateException("Saldo insuficiente para transferência");
+            saldo = saldo.subtract(v);
+            destino.saldo = destino.saldo.add(v);
+            historico.add(Transacao.debito(v, desc));
+            destino.historico.add(Transacao.credito(v, desc));
+        }
+        abstract boolean podeDebitar(BigDecimal v);
+        void validarPositivo(BigDecimal v){
+            if(v==null || v.compareTo(BigDecimal.ZERO)<=0) throw new IllegalArgumentException("Valor inválido");
+        }
+    }
+
+    static final class ContaCorrente extends Conta {
+        BigDecimal limite;
+        ContaCorrente(String id, String numero, Cliente titular, BigDecimal limite){
+            super(id, numero, titular, TipoConta.CORRENTE);
+            this.limite = limite==null? BigDecimal.ZERO : limite;
+        }
+        boolean podeDebitar(BigDecimal v){ return saldo.add(limite).compareTo(v) >= 0; }
+    }
+
+    static final class ContaPoupanca extends Conta {
+        ContaPoupanca(String id, String numero, Cliente titular){
+            super(id, numero, titular, TipoConta.POUPANCA);
+        }
+        boolean podeDebitar(BigDecimal v){ return saldo.compareTo(v) >= 0; }
+    }
+
+    static abstract class Investimento {
+        String id = UUID.randomUUID().toString();
+        String contaId;
+        BigDecimal aporteInicial;
+        TipoInvestimento tipo;
+        Investimento(String contaId, BigDecimal aporteInicial, TipoInvestimento tipo){
+            this.contaId=contaId; this.aporteInicial=aporteInicial; this.tipo=tipo;
+        }
+        abstract BigDecimal valorAtual();
+    }
+
+    
+    static final class RendaFixaSimples extends Investimento {
+        BigDecimal taxaAnual; int dias;
+        RendaFixaSimples(String contaId, BigDecimal aporte, BigDecimal taxaAnual, int dias){
+            super(contaId, aporte, TipoInvestimento.RENDA_FIXA_SIMPLES);
+            this.taxaAnual=taxaAnual; this.dias=dias;
+        }
+        BigDecimal valorAtual(){
+            BigDecimal taxaDia = taxaAnual.divide(BigDecimal.valueOf(365), 10, RoundingMode.HALF_UP);
+            BigDecimal fator = BigDecimal.ONE.add(taxaDia.multiply(BigDecimal.valueOf(dias)));
+            return aporteInicial.multiply(fator).setScale(2, RoundingMode.HALF_UP);
+        }
+    }
+
+    
+    static final class CDBPos extends Investimento {
+        BigDecimal cdiAnual, percentual; int dias;
+        CDBPos(String contaId, BigDecimal aporte, BigDecimal cdiAnual, BigDecimal percentual, int dias){
+            super(contaId, aporte, TipoInvestimento.CDB_POS);
+            this.cdiAnual=cdiAnual; this.percentual=percentual; this.dias=dias;
+        }
+        BigDecimal valorAtual(){
+            BigDecimal taxaEfetiva = cdiAnual.multiply(percentual);
+            BigDecimal taxaDia = taxaEfetiva.divide(BigDecimal.valueOf(365), 10, RoundingMode.HALF_UP);
+            BigDecimal fator = BigDecimal.ONE.add(taxaDia.multiply(BigDecimal.valueOf(dias)));
+            return aporteInicial.multiply(fator).setScale(2, RoundingMode.HALF_UP);
+        }
+    }
+
+    
+
+    interface ContaRepository {
+        Conta salvar(Conta c);
+        Optional<Conta> porId(String id);
+        Optional<Conta> porNumero(String numero);
+        List<Conta> todas();
+    }
+    interface ClienteRepository {
+        Cliente salvar(Cliente c);
+        Optional<Cliente> porId(String id);
+        Optional<Cliente> porCpf(String cpf);
+        List<Cliente> todos();
+    }
+    interface InvestimentoRepository {
+        Investimento salvar(Investimento i);
+        List<Investimento> porContaId(String contaId);
+    }
+    interface HistoricoRepository {
+        void registrar(String contaId, Transacao t);
+        List<Transacao> listar(String contaId);
+    }
+
+    
+    static final class InMemoryContaRepository implements ContaRepository {
+        Map<String, Conta> porId = new HashMap<>();
+        Map<String, String> numeroToId = new HashMap<>();
+        public Conta salvar(Conta c){ porId.put(c.id,c); numeroToId.put(c.numero,c.id); return c; }
+        public Optional<Conta> porId(String id){ return Optional.ofNullable(porId.get(id)); }
+        public Optional<Conta> porNumero(String numero){
+            String id = numeroToId.get(numero);
+            return id==null? Optional.empty() : Optional.ofNullable(porId.get(id));
+        }
+        public List<Conta> todas(){ return new ArrayList<>(porId.values()); }
+    }
+    static final class InMemoryClienteRepository implements ClienteRepository {
+        Map<String, Cliente> porId = new HashMap<>();
+        Map<String, String> cpfToId = new HashMap<>();
+        public Cliente salvar(Cliente c){ porId.put(c.id,c); cpfToId.put(c.cpf,c.id); return c; }
+        public Optional<Cliente> porId(String id){ return Optional.ofNullable(porId.get(id)); }
+        public Optional<Cliente> porCpf(String cpf){
+            String id = cpfToId.get(cpf);
+            return id==null? Optional.empty() : Optional.ofNullable(porId.get(id));
+        }
+        public List<Cliente> todos(){ return new ArrayList<>(porId.values()); }
+    }
+    static final class InMemoryInvestimentoRepository implements InvestimentoRepository {
+        Map<String, List<Investimento>> porConta = new HashMap<>();
+        public Investimento salvar(Investimento i){
+            porConta.computeIfAbsent(i.contaId, k->new ArrayList<>()).add(i); return i;
+        }
+        public List<Investimento> porContaId(String contaId){ return porConta.getOrDefault(contaId, List.of()); }
+    }
+    static final class InMemoryHistoricoRepository implements HistoricoRepository {
+        Map<String, List<Transacao>> porConta = new HashMap<>();
+        public void registrar(String contaId, Transacao t){
+            porConta.computeIfAbsent(contaId,k->new ArrayList<>()).add(t);
+        }
+        public List<Transacao> listar(String contaId){ return porConta.getOrDefault(contaId, List.of()); }
+    }
+
+    
+
+    static final class PixDirectory {
+        Map<String, String> chaveParaContaId = new HashMap<>();
+        void registrar(String chave, String contaId){ chaveParaContaId.put(chave, contaId); }
+        Optional<String> contaIdDe(String chave){ return Optional.ofNullable(chaveParaContaId.get(chave)); }
+    }
+
+    static final class BancoService {
+        ContaRepository contas; HistoricoRepository historico; PixDirectory pix;
+        BancoService(ContaRepository c, HistoricoRepository h, PixDirectory p){ this.contas=c; this.historico=h; this.pix=p; }
+
+        void deposito(Conta conta, BigDecimal v){
+            conta.depositar(v);
+            historico.registrar(conta.id, Transacao.credito(v,"Depósito em conta"));
+            contas.salvar(conta);
+        }
+        void saque(Conta conta, BigDecimal v){
+            conta.sacar(v);
+            historico.registrar(conta.id, Transacao.debito(v,"Saque"));
+            contas.salvar(conta);
+        }
+        void pix(String chaveDestino, Conta origem, BigDecimal v){
+            String destId = pix.contaIdDe(chaveDestino).orElseThrow(() -> new IllegalArgumentException("Chave PIX não encontrada"));
+            Conta destino = contas.porId(destId).orElseThrow(() -> new IllegalArgumentException("Conta destino não encontrada"));
+            origem.transferirPara(destino, v, "PIX");
+            historico.registrar(origem.id, Transacao.debito(v,"PIX enviado"));
+            historico.registrar(destino.id, Transacao.credito(v,"PIX recebido"));
+            contas.salvar(origem); contas.salvar(destino);
+        }
+    }
+
+    static final class InvestimentoService {
+        InvestimentoRepository repo;
+        InvestimentoService(InvestimentoRepository repo){ this.repo=repo; }
+        Investimento criar(Investimento i){ return repo.salvar(i); }
+        List<Investimento> porConta(String contaId){ return repo.porContaId(contaId); }
+    }
+
+    
+
+    static final class Menu {
+        final Scanner in = new Scanner(System.in);
+        final ClienteRepository clientes; final ContaRepository contas;
+        final HistoricoRepository historico; final InvestimentoRepository investimentos;
+        final BancoService banco; final InvestimentoService inv; final PixDirectory pix;
+
+        Menu(ClienteRepository clientes, ContaRepository contas, HistoricoRepository historico,
+             InvestimentoRepository investimentos, BancoService banco, InvestimentoService inv, PixDirectory pix) {
+            this.clientes=clientes; this.contas=contas; this.historico=historico; this.investimentos=investimentos;
+            this.banco=banco; this.inv=inv; this.pix=pix;
+        }
+
+        void loop(){
+            while(true){
+                System.out.println("\n=== BANCO (SIMPLES) ===");
+                System.out.println("1) Cadastrar cliente e conta");
+                System.out.println("2) Depósito");
+                System.out.println("3) Saque");
+                System.out.println("4) PIX (por chave)");
+                System.out.println("5) Criar investimento");
+                System.out.println("6) Listar histórico");
+                System.out.println("0) Sair");
+                System.out.print("Escolha: ");
+                String op = in.nextLine().trim();
+                try{
+                    switch(op){
+                        case "1" -> cadastrarClienteConta();
+                        case "2" -> deposito();
+                        case "3" -> saque();
+                        case "4" -> pix();
+                        case "5" -> criarInvestimento();
+                        case "6" -> listarHistorico();
+                        case "0" -> { System.out.println("Até mais!"); return; }
+                        default -> System.out.println("Opção inválida.");
+                    }
+                }catch(Exception e){ System.out.println("Erro: " + e.getMessage()); }
+            }
+        }
+
+        void cadastrarClienteConta(){
+            System.out.print("Nome: "); String nome = in.nextLine();
+            System.out.print("CPF: "); String cpf = in.nextLine();
+            Cliente c = new Cliente(UUID.randomUUID().toString(), nome, cpf);
+            clientes.salvar(c);
+
+            System.out.print("Tipo de conta (1=Corrente, 2=Poupança): ");
+            int tipo = Integer.parseInt(in.nextLine());
+            System.out.print("Número da conta: "); String numero = in.nextLine();
+            Conta conta;
+            if(tipo==1){
+                System.out.print("Limite (cheque especial): ");
+                BigDecimal limite = new BigDecimal(in.nextLine());
+                conta = new ContaCorrente(UUID.randomUUID().toString(), numero, c, limite);
+            } else {
+                conta = new ContaPoupanca(UUID.randomUUID().toString(), numero, c);
+            }
+            contas.salvar(conta);
+
+            System.out.print("Chave PIX (e-mail/celular) para esta conta: ");
+            String chave = in.nextLine();
+            if(!chave.isBlank()) pix.registrar(chave, conta.id);
+
+            System.out.println("Conta criada! ID=" + conta.id);
+        }
+
+        Conta selecionarConta(){
+            System.out.print("Número da conta: ");
+            String numero = in.nextLine();
+            return contas.porNumero(numero).orElseThrow(() -> new IllegalArgumentException("Conta não encontrada"));
+        }
+
+        void deposito(){
+            Conta conta = selecionarConta();
+            System.out.print("Valor: ");
+            BigDecimal v = new BigDecimal(in.nextLine());
+            banco.deposito(conta, v);
+            System.out.println("Saldo: " + conta.saldo);
+        }
+
+        void saque(){
+            Conta conta = selecionarConta();
+            System.out.print("Valor: ");
+            BigDecimal v = new BigDecimal(in.nextLine());
+            banco.saque(conta, v);
+            System.out.println("Saldo: " + conta.saldo);
+        }
+
+        void pix(){
+            Conta origem = selecionarConta();
+            System.out.print("Chave PIX destino: "); String chave = in.nextLine();
+            System.out.print("Valor: "); BigDecimal v = new BigDecimal(in.nextLine());
+            banco.pix(chave, origem, v);
+            System.out.println("Enviado! Saldo: " + origem.saldo);
+        }
+
+        void criarInvestimento(){
+            Conta conta = selecionarConta();
+            System.out.println("1) Renda Fixa Simples  |  2) CDB Pós");
+            int t = Integer.parseInt(in.nextLine());
+            System.out.print("Aporte inicial: ");
+            BigDecimal aporte = new BigDecimal(in.nextLine());
+            Investimento i;
+            if(t==1){
+                System.out.print("Taxa anual (ex 0.10 = 10%): ");
+                BigDecimal taxa = new BigDecimal(in.nextLine());
+                System.out.print("Prazo (dias): ");
+                int dias = Integer.parseInt(in.nextLine());
+                i = new RendaFixaSimples(conta.id, aporte, taxa, dias);
+            } else {
+                System.out.print("CDI anual (ex 0.1065): ");
+                BigDecimal cdi = new BigDecimal(in.nextLine());
+                System.out.print("Percentual do CDI (ex 1.00 = 100%): ");
+                BigDecimal pct = new BigDecimal(in.nextLine());
+                System.out.print("Prazo (dias): ");
+                int dias = Integer.parseInt(in.nextLine());
+                i = new CDBPos(conta.id, aporte, cdi, pct, dias);
+            }
+            inv.criar(i);
+            System.out.println("Investimento criado. Valor estimado hoje: " + i.valorAtual());
+        }
+
+        void listarHistorico(){
+            Conta conta = selecionarConta();
+            System.out.println("=== Histórico da conta " + conta.numero + " ===");
+            for(Transacao t : conta.historico){
+                System.out.printf("%s\t%s\t%s\t%s%n", t.quando, t.tipo, t.valor, t.descricao);
+            }
+        }
+    }
+
+  
+
+    public static void main(String[] args) {
+        ClienteRepository clientes = new InMemoryClienteRepository();
+        ContaRepository contas = new InMemoryContaRepository();
+        HistoricoRepository historico = new InMemoryHistoricoRepository();
+        InvestimentoRepository investimentos = new InMemoryInvestimentoRepository();
+
+        PixDirectory pix = new PixDirectory();
+        BancoService banco = new BancoService(contas, historico, pix);
+        InvestimentoService inv = new InvestimentoService(investimentos);
+
+        new Menu(clientes, contas, historico, investimentos, banco, inv, pix).loop();
+    }
+}
