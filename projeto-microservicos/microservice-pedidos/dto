@@ -1,0 +1,1 @@
+public record ProdutoDTO(Long id, String nome, String descricao, double preco) {}
