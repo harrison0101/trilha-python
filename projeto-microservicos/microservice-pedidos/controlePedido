@@ -1,0 +1,19 @@
+@RestController
+@RequestMapping("/pedidos")
+public class PedidoController {
+
+    private final RestTemplate restTemplate = new RestTemplate();
+
+    @GetMapping("/novo")
+    public String criarPedido() {
+        String url = "http://localhost:8080/produtos"; // via Gateway
+        ResponseEntity<ProdutoDTO[]> response = restTemplate.getForEntity(url, ProdutoDTO[].class);
+
+        ProdutoDTO[] produtos = response.getBody();
+        if (produtos == null || produtos.length == 0) {
+            return "Nenhum produto disponível para pedido.";
+        }
+
+        return "Pedido criado com: " + produtos[0].nome();
+    }
+}
