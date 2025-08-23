@@ -1,0 +1,19 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: produtos
+          uri: lb://microservice-produtos
+          predicates:
+            - Path=/produtos/**
+        - id: pedidos
+          uri: lb://microservice-pedidos
+          predicates:
+            - Path=/pedidos/**
+      default-filters:
+        - TokenAuthenticationFilter
