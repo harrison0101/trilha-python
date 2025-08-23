@@ -1,0 +1,22 @@
+@RestController
+@RequestMapping("/produtos")
+public class ProdutoController {
+
+    @Autowired
+    private ProdutoRepository repository;
+
+    @PostMapping
+    public Produto cadastrar(@RequestBody Produto produto) {
+        return repository.save(produto);
+    }
+
+    @GetMapping
+    public List<Produto> listar() {
+        return repository.findAll();
+    }
+
+    @GetMapping("/{id}")
+    public Produto buscar(@PathVariable Long id) {
+        return repository.findById(id).orElseThrow();
+    }
+}
