@@ -1,0 +1,105 @@
+import java.util.Scanner;
+
+// Classe principal para iniciar o jogo
+public class JogoDaForca {
+    public static void main(String[] args) {
+        Menu menu = new Menu();
+        menu.exibirMenu();
+    }
+}
+
+// Classe que representa o jogo em si
+class Forca {
+    private String palavraOculta;
+    private StringBuilder palavraAtual;
+    private int tentativasRestantes;
+
+    public Forca(String palavraOculta) {
+        this.palavraOculta = palavraOculta.toUpperCase();
+        this.palavraAtual = new StringBuilder("_".repeat(palavraOculta.length()));
+        this.tentativasRestantes = 6; // número fixo de tentativas
+    }
+
+    public boolean jogar(char letra) {
+        letra = Character.toUpperCase(letra);
+        boolean acertou = false;
+
+        for (int i = 0; i < palavraOculta.length(); i++) {
+            if (palavraOculta.charAt(i) == letra) {
+                palavraAtual.setCharAt(i, letra);
+                acertou = true;
+            }
+        }
+
+        if (!acertou) {
+            tentativasRestantes--;
+        }
+
+        return acertou;
+    }
+
+    public boolean venceu() {
+        return palavraOculta.contentEquals(palavraAtual);
+    }
+
+    public boolean perdeu() {
+        return tentativasRestantes <= 0;
+    }
+
+    public void exibirEstado() {
+        System.out.println("Palavra: " + palavraAtual);
+        System.out.println("Tentativas restantes: " + tentativasRestantes);
+        montarForca();
+    }
+
+    private void montarForca() {
+        switch (tentativasRestantes) {
+            case 6 -> System.out.println("\n\n\n\n");
+            case 5 -> System.out.println("  O\n\n\n");
+            case 4 -> System.out.println("  O\n  |\n\n");
+            case 3 -> System.out.println("  O\n /|\n\n");
+            case 2 -> System.out.println("  O\n /|\\\n\n");
+            case 1 -> System.out.println("  O\n /|\\\n /\n");
+            case 0 -> System.out.println("  O\n /|\\\n / \\\n");
+        }
+    }
+}
+
+// Classe responsável pelo menu e interação
+class Menu {
+    private Scanner scanner = new Scanner(System.in);
+
+    public void exibirMenu() {
+        System.out.println("==== JOGO DA FORCA ====");
+        System.out.println("1 - Iniciar Jogo");
+        System.out.println("2 - Sair");
+        int opcao = scanner.nextInt();
+        scanner.nextLine(); // consumir quebra de linha
+
+        if (opcao == 1) {
+            iniciarJogo();
+        } else {
+            System.out.println("Saindo...");
+        }
+    }
+
+    private void iniciarJogo() {
+        System.out.print("Digite a palavra oculta: ");
+        String palavra = scanner.nextLine();
+
+        Forca forca = new Forca(palavra);
+
+        while (!forca.venceu() && !forca.perdeu()) {
+            forca.exibirEstado();
+            System.out.print("Digite uma letra: ");
+            char letra = scanner.nextLine().charAt(0);
+            forca.jogar(letra);
+        }
+
+        if (forca.venceu()) {
+            System.out.println("Parabéns! Você venceu!");
+        } else {
+            System.out.println("Você perdeu! A palavra era: " + palavra.toUpperCase());
+        }
+    }
+}
