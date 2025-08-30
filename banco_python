@@ -1,0 +1,89 @@
+class Cliente:
+    def __init__(self, nome, cpf):
+        self.nome = nome
+        self.cpf = cpf
+        self.conta = None
+
+    def vincular_conta(self, conta):
+        self.conta = conta
+
+
+class ContaBancaria:
+    LIMITE_SAQUES = 3
+
+    def __init__(self, numero, saldo=0, limite=500):
+        self.numero = numero
+        self.saldo = saldo
+        self.limite = limite
+        self.extrato = ""
+        self.numero_saques = 0
+
+    def depositar(self, valor):
+        if valor <= 0:
+            print("Operação falhou! O valor informado é inválido.")
+            return
+        self.saldo += valor
+        self.extrato += f"Depósito: R$ {valor:.2f}\n"
+        print(f"Depósito de R$ {valor:.2f} realizado com sucesso!")
+
+    def sacar(self, valor):
+        if valor <= 0:
+            print("Operação falhou! O valor informado é inválido.")
+            return
+        if valor > self.saldo:
+            print("Operação falhou! Você não tem saldo suficiente.")
+            return
+        if valor > self.limite:
+            print("Operação falhou! O valor do saque excede o limite.")
+            return
+        if self.numero_saques >= ContaBancaria.LIMITE_SAQUES:
+            print("Operação falhou! Número máximo de saques excedido.")
+            return
+
+        self.saldo -= valor
+        self.extrato += f"Saque: R$ {valor:.2f}\n"
+        self.numero_saques += 1
+        print(f"Saque de R$ {valor:.2f} realizado com sucesso!")
+
+    def exibir_extrato(self):
+        print("\n================ EXTRATO ================")
+        print("Não foram realizadas movimentações." if not self.extrato else self.extrato)
+        print(f"Saldo: R$ {self.saldo:.2f}")
+        print("=========================================")
+
+
+# -------- Programa principal --------
+menu = """
+
+[d] Depositar
+[s] Sacar
+[e] Extrato
+[q] Sair
+
+=> """
+
+# Criando cliente e conta
+cliente = Cliente("João Silva", "123.456.789-00")
+conta = ContaBancaria(numero=1)
+cliente.vincular_conta(conta)
+
+while True:
+    opcao = input(menu)
+
+    if opcao == "d":
+        valor = float(input("Informe o valor do depósito: "))
+        cliente.conta.depositar(valor)
+
+    elif opcao == "s":
+        valor = float(input("Informe o valor do saque: "))
+        cliente.conta.sacar(valor)
+
+    elif opcao == "e":
+        cliente.conta.exibir_extrato()
+
+    elif opcao == "q":
+        print("Saindo do sistema bancário...")
+        break
+
+    else:
+        print("Operação inválida, por favor selecione novamente a operação desejada.")
